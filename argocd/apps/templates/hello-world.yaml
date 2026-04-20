@@ -8,14 +8,17 @@ metadata:
     argocd.argoproj.io/sync-wave: {{ .Values.apps.helloWorld.syncWave | quote }}
 spec:
   project: default
-  source:
-    repoURL: {{ .Values.repoURL }}
-    targetRevision: {{ .Values.targetRevision }}
-    path: vault-eso/hello-world
-    helm:
-      valueFiles:
-        - values.yaml
-        - values-{{ .Values.env }}.yaml
+  sources:
+    - repoURL: {{ .Values.repoURL }}
+      targetRevision: {{ .Values.targetRevision }}
+      path: vault-eso/hello-world
+      helm:
+        valueFiles:
+          - values.yaml
+          - $values/vault-eso/argocd/environments/{{ .Values.env }}/hello-world/values.yaml
+    - repoURL: {{ .Values.repoURL }}
+      targetRevision: {{ .Values.targetRevision }}
+      ref: values
   destination:
     name: {{ .Values.env }}
     namespace: {{ .Values.apps.helloWorld.namespace }}

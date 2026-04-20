@@ -15,7 +15,7 @@ spec:
       helm:
         valueFiles:
           - $values/vault-eso/eso/values/base.yaml
-          - $values/vault-eso/eso/values/{{ .Values.env }}.yaml
+          - $values/vault-eso/argocd/environments/{{ .Values.env }}/eso/values.yaml
     - repoURL: {{ .Values.repoURL }}
       targetRevision: {{ .Values.targetRevision }}
       ref: values
