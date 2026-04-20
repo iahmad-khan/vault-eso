@@ -2,7 +2,6 @@ replicaCount: 1
 
 image:
   repository: "your-registry/hello-world"
-  tag: "uat"
 
 ingress:
   enabled: true

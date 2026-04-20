@@ -11,8 +11,11 @@ spec:
   sources:
     - repoURL: {{ .Values.repoURL }}
       targetRevision: {{ .Values.targetRevision }}
-      path: vault-eso/hello-world
+      path: vault-eso/helm-charts/hello-world
       helm:
+        parameters:
+          - name: image.tag
+            value: {{ .Values.apps.helloWorld.imageTag | quote }}
         valueFiles:
           - values.yaml
           - $values/vault-eso/argocd/environments/{{ .Values.env }}/hello-world/values.yaml

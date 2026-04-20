@@ -14,7 +14,7 @@ spec:
       targetRevision: {{ .Values.apps.vault.chartVersion | quote }}
       helm:
         valueFiles:
-          - $values/vault-eso/vault/values/base.yaml
+          - $values/vault-eso/app-default-values/vault/values/base.yaml
           - $values/vault-eso/argocd/environments/{{ .Values.env }}/vault/values.yaml
     - repoURL: {{ .Values.repoURL }}
       targetRevision: {{ .Values.targetRevision }}

@@ -11,7 +11,7 @@ spec:
   source:
     repoURL: {{ .Values.repoURL }}
     targetRevision: {{ .Values.targetRevision }}
-    path: vault-eso/vault/manifests/{{ .Values.env }}
+    path: vault-eso/app-default-values/vault/manifests/{{ .Values.env }}
   destination:
     name: {{ .Values.env }}
     namespace: {{ .Values.apps.vaultConfig.namespace }}

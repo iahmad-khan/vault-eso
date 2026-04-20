@@ -2,7 +2,6 @@ replicaCount: 2
 
 image:
   repository: "your-registry/hello-world"
-  tag: "stable"
 
 ingress:
   enabled: true

@@ -8,36 +8,36 @@ Deploys HashiCorp Vault and External Secrets Operator (ESO) across `dev`, `uat`,
 
 ```
 vault-eso/
-├── vault/
-│   ├── values/
-│   │   ├── base.yaml          # Shared Helm values (image, HA, storage, resources)
-│   │   ├── dev.yaml           # Dev overrides (KMS key, domain, IRSA role)
-│   │   ├── uat.yaml
-│   │   └── prod.yaml
-│   ├── manifests/
-│   │   ├── base/              # Kustomize base: RBAC + PostSync config job
-│   │   ├── dev/               # Kustomize overlay: includes base + dev UI ingress
-│   │   ├── uat/
-│   │   └── prod/
-│   └── monitoring/
-│       ├── podmonitor.yaml    # Prometheus PodMonitor for all vault server pods
-│       ├── prometheusrule.yaml# Alerting rules (sealed, no leader, audit failures, …)
-│       └── grafana-dashboard.yaml  # ConfigMap with Vault Grafana dashboard
-├── eso/
-│   ├── values/
-│   │   ├── base.yaml          # Shared ESO Helm values
-│   │   ├── dev.yaml           # Dev IRSA role annotation
-│   │   ├── uat.yaml
-│   │   └── prod.yaml
-│   ├── secretstore/
-│   │   ├── dev.yaml           # ClusterSecretStore → Vault (Kubernetes auth)
-│   │   ├── uat.yaml
-│   │   └── prod.yaml
-│   └── monitoring/
-│       ├── servicemonitor.yaml # Prometheus ServiceMonitor for ESO metrics
-│       ├── prometheusrule.yaml # Alerting rules (sync errors, queue depth, …)
-│       └── grafana-dashboard.yaml  # ConfigMap with ESO Grafana dashboard
+├── app-default-values/
+│   ├── vault/
+│   │   ├── values/
+│   │   │   └── base.yaml          # Shared Vault Helm values (image, HA, storage, resources)
+│   │   ├── manifests/
+│   │   │   ├── base/              # Kustomize base: RBAC + PostSync config job
+│   │   │   ├── dev/               # Kustomize overlay: includes base + dev UI ingress
+│   │   │   ├── uat/
+│   │   │   └── prod/
+│   │   └── monitoring/
+│   │       ├── podmonitor.yaml    # Prometheus PodMonitor for all vault server pods
+│   │       ├── prometheusrule.yaml# Alerting rules (sealed, no leader, audit failures, …)
+│   │       └── grafana-dashboard.yaml  # ConfigMap with Vault Grafana dashboard
+│   └── eso/
+│       ├── values/
+│       │   └── base.yaml          # Shared ESO Helm values
+│       ├── secretstore/
+│       │   ├── dev.yaml           # ClusterSecretStore → Vault (Kubernetes auth)
+│       │   ├── uat.yaml
+│       │   └── prod.yaml
+│       └── monitoring/
+│           ├── servicemonitor.yaml # Prometheus ServiceMonitor for ESO metrics
+│           ├── prometheusrule.yaml # Alerting rules (sync errors, queue depth, …)
+│           └── grafana-dashboard.yaml  # ConfigMap with ESO Grafana dashboard
+├── helm-charts/
+│   └── hello-world/           # Demo app Helm chart
 └── argocd/
+    ├── app-versions-dev.yaml  # Image tags for dev  — CI/CD bumps these
+    ├── app-versions-uat.yaml  # Image tags for uat
+    ├── app-versions-prod.yaml # Image tags for prod
     ├── root-apps/             # One root Application per env — kubectl apply once
     │   ├── dev.yaml
     │   ├── uat.yaml
@@ -46,10 +46,14 @@ vault-eso/
     │   ├── Chart.yaml
     │   ├── values.yaml        # Shared defaults (chart versions, namespaces, sync-waves)
     │   └── templates/         # One template per application (env-agnostic)
-    └── environments/          # Per-env overrides (env name only)
-        ├── dev/values.yaml
-        ├── uat/values.yaml
-        └── prod/values.yaml
+    └── environments/          # All env-specific config in one place
+        ├── dev/
+        │   ├── values.yaml            # Root app values (env: dev)
+        │   ├── vault/values.yaml      # Vault Helm overrides for dev
+        │   ├── eso/values.yaml        # ESO Helm overrides for dev
+        │   └── hello-world/values.yaml
+        ├── uat/               # Same structure
+        └── prod/              # Same structure
 ```
 
 ### ArgoCD Applications per environment
@@ -106,7 +110,7 @@ vault-eso/
 
 Before applying, replace all placeholder values in the env-specific files:
 
-### `vault/values/<env>.yaml`
+### `argocd/environments/<env>/vault/values.yaml`
 
 | Placeholder | Description |
 |---|---|
@@ -114,13 +118,13 @@ Before applying, replace all placeholder values in the env-specific files:
 | `<DEV/UAT/PROD_KMS_KEY_ARN>` | Full ARN of the KMS key, e.g. `arn:aws:kms:us-east-1:123456789012:key/xxxx-xxxx` |
 | `vault-server.<env>.<YOUR_DOMAIN>` | Hostname for the Vault API ingress |
 
-### `eso/values/<env>.yaml`
+### `argocd/environments/<env>/eso/values.yaml`
 
 | Placeholder | Description |
 |---|---|
 | `<DEV/UAT/PROD_AWS_ACCOUNT_ID>` | AWS account ID for that environment |
 
-### `eso/secretstore/<env>.yaml`
+### `app-default-values/eso/secretstore/<env>.yaml`
 
 No placeholders — the `ClusterSecretStore` connects to Vault via the in-cluster DNS name `vault-active.vault.svc.cluster.local`, which works once Vault is running.
 
@@ -139,8 +143,9 @@ destination:
 ### 1. Fill in all placeholder values
 
 Edit the following files for each environment you are deploying:
-- `vault/values/<env>.yaml`
-- `eso/values/<env>.yaml`
+- `argocd/environments/<env>/vault/values.yaml` — AWS account ID, KMS key ARN, ingress hostname
+- `argocd/environments/<env>/eso/values.yaml` — AWS account ID for IRSA role
+- `argocd/environments/<env>/hello-world/values.yaml` — image repository, ingress hostname
 
 The `destination.name` in child Applications is set automatically from `argocd/environments/<env>/values.yaml` — no manual edits needed there.
 
@@ -197,6 +202,28 @@ kubectl logs -n vault -l app=vault-configure
 # ESO SecretStore health
 kubectl get clustersecretstore vault-backend
 ```
+
+---
+
+## Updating image versions
+
+Image tags are decoupled from environment config and live in `argocd/app-versions-<env>.yaml`:
+
+```yaml
+# argocd/app-versions-dev.yaml
+apps:
+  helloWorld:
+    imageTag: "abc123"
+```
+
+To deploy a new image to an environment, update the corresponding file and merge to the main branch. ArgoCD detects the change on the next sync of the root app and rolls out the new tag automatically.
+
+**Value precedence** (last wins):
+1. `argocd/apps/values.yaml` — shared defaults
+2. `argocd/environments/<env>/values.yaml` — env identity
+3. `argocd/app-versions-<env>.yaml` — image tags (CI/CD writes here)
+
+Adding a new application follows the same pattern: add an `imageTag` entry here, a corresponding `helm parameter` in the app template, and an `enabled` flag in `apps/values.yaml`.
 
 ---
 
@@ -258,19 +285,16 @@ Both use `ingressClassName: nginx` and terminate TLS at the ingress layer (Vault
 
 ---
 
-## Hello World demo app (`hello-world/`)
+## Hello World demo app (`helm-charts/hello-world/`)
 
 A Helm chart for a Python app that demonstrates end-to-end ESO + Vault secret injection. It is intended as a reference pattern for onboarding real applications.
 
 ### Chart structure
 
 ```
-hello-world/
+helm-charts/hello-world/
 ├── Chart.yaml
-├── values.yaml           # Base values (image, resources, vault config)
-├── values-dev.yaml       # Dev overrides (image tag, ingress host)
-├── values-uat.yaml
-├── values-prod.yaml
+├── values.yaml           # Base values (image repository, resources, vault config)
 └── templates/
     ├── _helpers.tpl
     ├── serviceaccount.yaml
@@ -319,11 +343,11 @@ The `hello-world-<env>` Application (sync wave 4 — after ESO and the SecretSto
 
 | Feature | Where |
 |---|---|
-| ExternalSecret with explicit key mapping | [externalsecret.yaml](hello-world/templates/externalsecret.yaml) |
-| `dataFrom` alternative (commented out) | [externalsecret.yaml](hello-world/templates/externalsecret.yaml) |
-| Init container waits for ESO sync before app starts | [deployment.yaml](hello-world/templates/deployment.yaml) |
-| Secrets as env vars AND as `/vault-secrets/` volume | [deployment.yaml](hello-world/templates/deployment.yaml) |
-| `creationPolicy: Owner` — ESO owns the Secret lifecycle | [externalsecret.yaml](hello-world/templates/externalsecret.yaml) |
+| ExternalSecret with explicit key mapping | [externalsecret.yaml](helm-charts/hello-world/templates/externalsecret.yaml) |
+| `dataFrom` alternative (commented out) | [externalsecret.yaml](helm-charts/hello-world/templates/externalsecret.yaml) |
+| Init container waits for ESO sync before app starts | [deployment.yaml](helm-charts/hello-world/templates/deployment.yaml) |
+| Secrets as env vars AND as `/vault-secrets/` volume | [deployment.yaml](helm-charts/hello-world/templates/deployment.yaml) |
+| `creationPolicy: Owner` — ESO owns the Secret lifecycle | [externalsecret.yaml](helm-charts/hello-world/templates/externalsecret.yaml) |
 
 ---
 
@@ -341,7 +365,7 @@ Grafana's sidecar is configured with `searchNamespace: ALL` and label `grafana_d
 
 **PodMonitor** — scrapes every vault server pod individually at `http://<pod>:8200/v1/sys/metrics?format=prometheus`. Scrapes all 3 HA pods so per-pod metrics (sealed status, Raft role, memory, etc.) are visible separately.
 
-Vault must have `unauthenticated_metrics_access = "true"` in the telemetry block — this is already set in all env values files under `ha.raft.config`.
+Vault must have `unauthenticated_metrics_access = "true"` in the telemetry block — this is already set in the env values files under `argocd/environments/<env>/vault/values.yaml` → `ha.raft.config`.
 
 **PrometheusRule — alerts:**
 

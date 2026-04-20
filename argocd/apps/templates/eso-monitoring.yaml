@@ -11,7 +11,7 @@ spec:
   source:
     repoURL: {{ .Values.repoURL }}
     targetRevision: {{ .Values.targetRevision }}
-    path: vault-eso/eso/monitoring
+    path: vault-eso/app-default-values/eso/monitoring
   destination:
     name: {{ .Values.env }}
     namespace: {{ .Values.apps.esoMonitoring.namespace }}

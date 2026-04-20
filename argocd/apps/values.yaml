@@ -42,3 +42,4 @@ apps:
     enabled: true
     syncWave: "4"
     namespace: hello-world
+    imageTag: "latest"
