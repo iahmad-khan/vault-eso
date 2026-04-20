@@ -1,0 +1,15 @@
+installCRDs: true
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 400Mi
+  limits:
+    cpu: 800m
+    memory: 800Mi
+
+serviceAccount:
+  create: true
+  name: external-secrets

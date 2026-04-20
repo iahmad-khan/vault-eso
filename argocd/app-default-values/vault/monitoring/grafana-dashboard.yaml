@@ -1,0 +1,366 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-grafana-dashboard
+  namespace: vault
+  labels:
+    grafana_dashboard: "1"
+data:
+  vault-dashboard.json: |
+    {
+      "title": "HashiCorp Vault",
+      "uid": "vault-monitoring",
+      "description": "Vault cluster health, Raft replication, storage and audit metrics",
+      "tags": ["vault", "security"],
+      "schemaVersion": 38,
+      "version": 1,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "graphTooltip": 1,
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "type": "datasource",
+            "query": "prometheus",
+            "label": "Data Source",
+            "hide": 0,
+            "refresh": 1
+          },
+          {
+            "name": "namespace",
+            "type": "query",
+            "label": "Namespace",
+            "datasource": { "type": "prometheus", "uid": "${datasource}" },
+            "query": "label_values(vault_core_active, namespace)",
+            "hide": 0,
+            "refresh": 2,
+            "sort": 1,
+            "current": { "value": "vault", "text": "vault" }
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Active Nodes",
+          "description": "Number of Vault pods reporting as active (leader or active standby)",
+          "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "count(vault_core_active{namespace=\"$namespace\"} == 1) or vector(0)",
+              "legendFormat": ""
+            }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "green", "value": 1 }
+                ]
+              },
+              "unit": "short"
+            }
+          }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Sealed Nodes",
+          "description": "Number of Vault pods that are sealed — should be 0",
+          "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "count(vault_core_unsealed{namespace=\"$namespace\"} == 0) or vector(0)",
+              "legendFormat": ""
+            }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "colorMode": "background",
+            "graphMode": "none"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "red", "value": 1 }
+                ]
+              },
+              "unit": "short"
+            }
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Raft Peers",
+          "description": "Expected: 3",
+          "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "max(vault_raft_peers{namespace=\"$namespace\"})",
+              "legendFormat": ""
+            }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "colorMode": "background",
+            "graphMode": "none"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "yellow", "value": 2 },
+                  { "color": "green", "value": 3 }
+                ]
+              },
+              "unit": "short"
+            }
+          }
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Active Leases",
+          "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "max(vault_expire_num_leases{namespace=\"$namespace\"})",
+              "legendFormat": ""
+            }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "graphMode": "area"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 5000 },
+                  { "color": "red", "value": 10000 }
+                ]
+              },
+              "unit": "short"
+            }
+          }
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "Active Tokens",
+          "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "sum(vault_token_count{namespace=\"$namespace\"})",
+              "legendFormat": ""
+            }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "graphMode": "area"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "unit": "short"
+            }
+          }
+        },
+        {
+          "id": 6,
+          "type": "stat",
+          "title": "Audit Log Failures (1h)",
+          "description": "Any value above 0 is a critical issue — Vault will stop processing requests",
+          "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "increase(vault_audit_log_response_failure{namespace=\"$namespace\"}[1h]) or vector(0)",
+              "legendFormat": ""
+            }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "colorMode": "background",
+            "graphMode": "none"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "red", "value": 1 }
+                ]
+              },
+              "unit": "short"
+            }
+          }
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "Heap Memory Allocated",
+          "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "vault_runtime_alloc_bytes{namespace=\"$namespace\"}",
+              "legendFormat": "{{ pod }}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "color": { "mode": "palette-classic" }
+            }
+          },
+          "options": { "tooltip": { "mode": "multi" } }
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "Goroutines",
+          "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "vault_runtime_num_goroutines{namespace=\"$namespace\"}",
+              "legendFormat": "{{ pod }}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": { "mode": "palette-classic" }
+            }
+          }
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "Raft Commit Latency (p50 / p99)",
+          "description": "High latency indicates storage I/O or EBS volume pressure",
+          "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "vault_raft_commitTime{namespace=\"$namespace\", quantile=\"0.5\"}",
+              "legendFormat": "p50 {{ pod }}"
+            },
+            {
+              "expr": "vault_raft_commitTime{namespace=\"$namespace\", quantile=\"0.99\"}",
+              "legendFormat": "p99 {{ pod }}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ms",
+              "color": { "mode": "palette-classic" }
+            }
+          }
+        },
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "Barrier Storage Ops / s",
+          "description": "Read/write/delete operations against the Raft storage backend",
+          "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "rate(vault_barrier_get_count{namespace=\"$namespace\"}[5m])",
+              "legendFormat": "reads"
+            },
+            {
+              "expr": "rate(vault_barrier_put_count{namespace=\"$namespace\"}[5m])",
+              "legendFormat": "writes"
+            },
+            {
+              "expr": "rate(vault_barrier_delete_count{namespace=\"$namespace\"}[5m])",
+              "legendFormat": "deletes"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "color": { "mode": "palette-classic" }
+            }
+          }
+        },
+        {
+          "id": 11,
+          "type": "timeseries",
+          "title": "Token Count by Type",
+          "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "vault_token_count{namespace=\"$namespace\"}",
+              "legendFormat": "{{ creation_type }}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": { "mode": "palette-classic" }
+            }
+          }
+        },
+        {
+          "id": 12,
+          "type": "timeseries",
+          "title": "Active Leases over Time",
+          "gridPos": { "x": 12, "y": 20, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "vault_expire_num_leases{namespace=\"$namespace\"}",
+              "legendFormat": "{{ pod }}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": { "mode": "palette-classic" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 5000 },
+                  { "color": "red", "value": 10000 }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }

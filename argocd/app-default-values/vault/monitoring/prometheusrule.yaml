@@ -1,0 +1,111 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: vault-alerts
+  namespace: vault
+spec:
+  groups:
+
+    - name: vault.availability
+      rules:
+        - alert: VaultDown
+          expr: up{job="vault"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Vault scrape target is down ({{ $labels.pod }})"
+            description: >
+              Prometheus cannot scrape Vault metrics from pod {{ $labels.pod }}
+              in namespace {{ $labels.namespace }}. The pod may be down or not
+              responding on port 8200.
+
+        - alert: VaultSealed
+          expr: vault_core_unsealed{namespace="vault"} == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Vault pod is sealed ({{ $labels.pod }})"
+            description: >
+              Vault pod {{ $labels.pod }} has been sealed for more than 1 minute.
+              AWS KMS auto-unseal should have recovered it automatically — check
+              KMS key permissions and EKS IRSA configuration.
+
+        - alert: VaultNoActivePod
+          expr: sum(vault_core_active{namespace="vault"}) == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "No active Vault node in cluster"
+            description: >
+              No Vault node is reporting as active. The Raft cluster may be
+              partitioned, all nodes sealed, or the leader election has stalled.
+
+    - name: vault.raft
+      rules:
+        - alert: VaultRaftPeerCountLow
+          expr: max(vault_raft_peers{namespace="vault"}) < 3
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Vault Raft peer count below 3 (current: {{ $value }})"
+            description: >
+              Expected 3 Raft peers but found {{ $value }}. A peer may have
+              crashed or been removed. The cluster is still functional but has
+              reduced fault tolerance.
+
+        - alert: VaultRaftHighCommitLatency
+          # vault_raft_commitTime is a go-metrics summary exposed per pod
+          expr: vault_raft_commitTime{namespace="vault", quantile="0.99"} > 500
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Vault Raft p99 commit latency is high on {{ $labels.pod }} ({{ $value }}ms)"
+            description: >
+              Raft commit time p99 is {{ $value }}ms on pod {{ $labels.pod }}.
+              This may indicate storage I/O pressure or EBS volume throttling.
+
+    - name: vault.audit
+      rules:
+        - alert: VaultAuditLogFailure
+          # Vault stops processing requests if it cannot write to all audit backends
+          expr: increase(vault_audit_log_response_failure[5m]) > 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Vault audit log write failure on {{ $labels.pod }}"
+            description: >
+              Vault failed to write to the audit log on pod {{ $labels.pod }}.
+              Vault will block all requests once audit failures exceed the
+              configured threshold. Check the audit log PVC and pod filesystem.
+
+    - name: vault.leases
+      rules:
+        - alert: VaultHighLeaseCount
+          expr: max(vault_expire_num_leases{namespace="vault"}) > 10000
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Vault lease count is very high ({{ $value }})"
+            description: >
+              Vault has {{ $value }} active leases, which may indicate a lease
+              leak in an application. Review which services are creating leases
+              and whether they are being properly revoked.
+
+        - alert: VaultLeadershipLoss
+          expr: increase(vault_core_leadership_lost_count{namespace="vault"}[10m]) > 2
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Vault leadership changed more than twice in 10 minutes"
+            description: >
+              Vault has lost leadership {{ $value }} times in the last 10 minutes
+              on pod {{ $labels.pod }}. Frequent leadership transitions can cause
+              request errors. Check Raft peer connectivity and resource limits.

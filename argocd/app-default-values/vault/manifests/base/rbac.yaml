@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault-config-sa
+  namespace: vault
+---
+# Read the bootstrap token secret from the vault namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: vault-config-role
+  namespace: vault
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vault-config-rolebinding
+  namespace: vault
+subjects:
+  - kind: ServiceAccount
+    name: vault-config-sa
+    namespace: vault
+roleRef:
+  kind: Role
+  apiGroup: rbac.authorization.k8s.io
+  name: vault-config-role
+---
+# Vault's own service account needs auth-delegator to validate k8s service account tokens
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vault-auth-delegator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: vault
+    namespace: vault

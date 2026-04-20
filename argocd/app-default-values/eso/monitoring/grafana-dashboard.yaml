@@ -1,0 +1,247 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: eso-grafana-dashboard
+  namespace: external-secrets
+  labels:
+    grafana_dashboard: "1"
+data:
+  eso-dashboard.json: |
+    {
+      "title": "External Secrets Operator",
+      "uid": "eso-monitoring",
+      "description": "ESO reconcile health, sync rates, error rates and work queue metrics",
+      "tags": ["eso", "external-secrets", "vault"],
+      "schemaVersion": 38,
+      "version": 1,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "graphTooltip": 1,
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "type": "datasource",
+            "query": "prometheus",
+            "label": "Data Source",
+            "hide": 0,
+            "refresh": 1
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Reconcile Success Rate (5m)",
+          "description": "Rate of successful ExternalSecret reconciliations per second",
+          "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "sum(rate(controller_runtime_reconcile_total{job=\"external-secrets\", controller=\"externalsecret\", result=\"success\"}[5m]))",
+              "legendFormat": ""
+            }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "colorMode": "background",
+            "graphMode": "none",
+            "unit": "ops"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null }
+                ]
+              },
+              "unit": "ops"
+            }
+          }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Reconcile Errors (5m)",
+          "description": "Rate of failed ExternalSecret reconciliations — should be 0",
+          "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "sum(rate(controller_runtime_reconcile_total{job=\"external-secrets\", result=\"error\"}[5m])) or vector(0)",
+              "legendFormat": ""
+            }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "colorMode": "background",
+            "graphMode": "none"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "red", "value": 0.001 }
+                ]
+              },
+              "unit": "ops"
+            }
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Active Workers",
+          "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "sum(controller_runtime_active_workers{job=\"external-secrets\", controller=\"externalsecret\"})",
+              "legendFormat": ""
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "unit": "short"
+            }
+          }
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Work Queue Depth",
+          "description": "Pending reconcile items — sustained high values indicate a backlog",
+          "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "sum(workqueue_depth{job=\"external-secrets\"}) or vector(0)",
+              "legendFormat": ""
+            }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "colorMode": "background"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 20 },
+                  { "color": "red", "value": 50 }
+                ]
+              },
+              "unit": "short"
+            }
+          }
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Reconcile Rate by Controller",
+          "description": "Success vs error reconcile rate per controller",
+          "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "sum by (controller, result) (rate(controller_runtime_reconcile_total{job=\"external-secrets\"}[5m]))",
+              "legendFormat": "{{ controller }} / {{ result }}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "color": { "mode": "palette-classic" }
+            }
+          },
+          "options": { "tooltip": { "mode": "multi" } }
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Reconcile Duration (p50 / p95 / p99)",
+          "description": "How long each ExternalSecret reconciliation takes",
+          "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.5, sum by (le) (rate(controller_runtime_reconcile_time_seconds_bucket{job=\"external-secrets\", controller=\"externalsecret\"}[5m])))",
+              "legendFormat": "p50"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(controller_runtime_reconcile_time_seconds_bucket{job=\"external-secrets\", controller=\"externalsecret\"}[5m])))",
+              "legendFormat": "p95"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum by (le) (rate(controller_runtime_reconcile_time_seconds_bucket{job=\"external-secrets\", controller=\"externalsecret\"}[5m])))",
+              "legendFormat": "p99"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "color": { "mode": "palette-classic" }
+            }
+          },
+          "options": { "tooltip": { "mode": "multi" } }
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "Work Queue Depth over Time",
+          "description": "A growing queue means ESO is falling behind on reconciliation",
+          "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "workqueue_depth{job=\"external-secrets\"}",
+              "legendFormat": "{{ name }}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": { "mode": "palette-classic" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 20 },
+                  { "color": "red", "value": 50 }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "Work Queue Retries / s",
+          "description": "High retry rate means ESO is repeatedly failing to process items",
+          "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "rate(workqueue_retries_total{job=\"external-secrets\"}[5m])",
+              "legendFormat": "{{ name }}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "color": { "mode": "palette-classic" }
+            }
+          }
+        }
+      ]
+    }

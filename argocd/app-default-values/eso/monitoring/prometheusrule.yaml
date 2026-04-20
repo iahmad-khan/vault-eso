@@ -1,0 +1,90 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: eso-alerts
+  namespace: external-secrets
+spec:
+  groups:
+
+    - name: eso.availability
+      rules:
+        - alert: ESODown
+          expr: up{job="external-secrets"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "External Secrets Operator is down"
+            description: >
+              Prometheus cannot scrape ESO metrics. The external-secrets pod
+              may be down. Kubernetes secrets will not be updated from Vault
+              until ESO is restored.
+
+    - name: eso.sync
+      rules:
+        - alert: ESOSyncErrors
+          # controller_runtime_reconcile_total has a `result` label with values "success" / "error"
+          expr: |
+            rate(controller_runtime_reconcile_total{
+              job="external-secrets",
+              controller="externalsecret",
+              result="error"
+            }[5m]) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ESO ExternalSecret reconcile errors are occurring"
+            description: >
+              ESO has been failing to reconcile ExternalSecret resources for
+              15+ minutes. Secrets may be stale. Check ESO logs:
+              kubectl logs -n external-secrets -l app.kubernetes.io/name=external-secrets
+
+        - alert: ESOClusterSecretStoreReconcileErrors
+          expr: |
+            rate(controller_runtime_reconcile_total{
+              job="external-secrets",
+              controller="clustersecretstore",
+              result="error"
+            }[5m]) > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "ESO ClusterSecretStore reconcile errors"
+            description: >
+              ESO cannot reconcile the ClusterSecretStore (vault-backend).
+              This typically means ESO cannot authenticate to Vault or the
+              Vault address is unreachable. All ExternalSecrets will fail
+              until this is resolved.
+
+        - alert: ESOHighReconcileErrorRate
+          expr: |
+            sum(rate(controller_runtime_reconcile_total{
+              job="external-secrets",
+              result="error"
+            }[5m]))
+            /
+            sum(rate(controller_runtime_reconcile_total{
+              job="external-secrets"
+            }[5m])) > 0.1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ESO reconcile error rate exceeds 10%"
+            description: >
+              More than 10% of ESO reconcile operations are failing.
+              Current error rate: {{ $value | humanizePercentage }}.
+
+        - alert: ESOWorkQueueGrowing
+          expr: workqueue_depth{job="external-secrets"} > 50
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ESO work queue depth is growing ({{ $value }} items)"
+            description: >
+              The ESO work queue has {{ $value }} pending items and has been
+              growing for 10+ minutes. ESO may be under-resourced or blocked
+              on slow Vault responses.

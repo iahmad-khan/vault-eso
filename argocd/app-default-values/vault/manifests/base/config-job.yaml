@@ -1,0 +1,112 @@
+# PostSync hook: configures Vault auth, policy, and ESO role after Vault is deployed.
+#
+# FIRST-TIME SETUP — run once before ArgoCD sync:
+#   kubectl exec -it vault-0 -n vault -- vault operator init \
+#     -recovery-shares=5 -recovery-threshold=3
+#
+#   kubectl create secret generic vault-bootstrap-token -n vault \
+#     --from-literal=root-token=<ROOT_TOKEN_FROM_INIT_OUTPUT>
+#
+# The job is idempotent — safe to re-run on every sync.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vault-configure
+  namespace: vault
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  backoffLimit: 5
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        app: vault-configure
+    spec:
+      serviceAccountName: vault-config-sa
+      restartPolicy: OnFailure
+      containers:
+        - name: configure
+          image: alpine/k8s:1.27.13
+          env:
+            - name: VAULT_ADDR
+              value: "http://vault-active.vault.svc.cluster.local:8200"
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+
+              echo "==> Waiting for Vault to be reachable..."
+              until curl -sf "${VAULT_ADDR}/v1/sys/health?standbyok=true&uninitcode=200&sealedcode=200" > /dev/null 2>&1; do
+                echo "    not ready, retrying in 5s..."
+                sleep 5
+              done
+
+              INIT_STATUS=$(curl -sf "${VAULT_ADDR}/v1/sys/init" | jq -r '.initialized')
+              if [ "$INIT_STATUS" != "true" ]; then
+                echo "ERROR: Vault is not initialized."
+                echo "Run the following steps, then re-sync this ArgoCD Application:"
+                echo ""
+                echo "  kubectl exec -it vault-0 -n vault -- vault operator init \\"
+                echo "    -recovery-shares=5 -recovery-threshold=3"
+                echo ""
+                echo "  kubectl create secret generic vault-bootstrap-token -n vault \\"
+                echo "    --from-literal=root-token=<ROOT_TOKEN>"
+                exit 1
+              fi
+
+              ROOT_TOKEN=$(kubectl get secret vault-bootstrap-token -n vault \
+                -o jsonpath='{.data.root-token}' 2>/dev/null | base64 -d)
+
+              if [ -z "$ROOT_TOKEN" ]; then
+                echo "ERROR: secret 'vault-bootstrap-token' not found in namespace 'vault'."
+                echo "Create it with:"
+                echo "  kubectl create secret generic vault-bootstrap-token -n vault \\"
+                echo "    --from-literal=root-token=<ROOT_TOKEN>"
+                exit 1
+              fi
+
+              # Helper: call Vault HTTP API, treat 200/204/400 as success (400 = already exists)
+              vault_api() {
+                METHOD=$1; PATH=$2; DATA=${3:-}
+                HTTP_CODE=$(curl -s -o /tmp/vresp -w "%{http_code}" \
+                  -X "$METHOD" \
+                  -H "X-Vault-Token: $ROOT_TOKEN" \
+                  -H "Content-Type: application/json" \
+                  ${DATA:+-d "$DATA"} \
+                  "${VAULT_ADDR}/v1/${PATH}")
+                case $HTTP_CODE in
+                  200|204) echo "  OK      [$METHOD $PATH]" ;;
+                  400)     echo "  SKIP    [$METHOD $PATH] (already configured)" ;;
+                  *)       echo "  ERROR   [$METHOD $PATH] HTTP $HTTP_CODE"; cat /tmp/vresp; return 1 ;;
+                esac
+              }
+
+              echo "==> Enabling KV v2 secrets engine at path 'secret'..."
+              vault_api POST sys/mounts/secret '{"type":"kv-v2"}'
+
+              echo "==> Enabling file audit log..."
+              vault_api PUT sys/audit/file \
+                '{"type":"file","options":{"file_path":"/vault/logs/vault_audit.log","log_raw":"true"}}'
+
+              echo "==> Enabling Kubernetes auth method..."
+              vault_api POST sys/auth/kubernetes '{"type":"kubernetes"}'
+
+              echo "==> Configuring Kubernetes auth backend..."
+              K8S_HOST="https://kubernetes.default.svc.cluster.local:443"
+              K8S_CA=$(jq -Rs . < /var/run/secrets/kubernetes.io/serviceaccount/ca.crt)
+              vault_api POST auth/kubernetes/config \
+                "$(jq -n --arg host "$K8S_HOST" --argjson ca "$K8S_CA" \
+                  '{kubernetes_host: $host, kubernetes_ca_cert: $ca}')"
+
+              echo "==> Writing external-secrets-policy..."
+              vault_api PUT sys/policies/acl/external-secrets-policy \
+                "$(jq -n '{policy: "path \"secret/data/*\" { capabilities = [\"read\"] }\npath \"secret/metadata/*\" { capabilities = [\"read\",\"list\"] }"}')"
+
+              echo "==> Creating external-secrets Kubernetes auth role..."
+              vault_api POST auth/kubernetes/role/external-secrets-role \
+                '{"bound_service_account_names":["external-secrets"],"bound_service_account_namespaces":["external-secrets"],"token_policies":["external-secrets-policy"],"token_ttl":86400}'
+
+              echo "==> Done. Vault is fully configured."
