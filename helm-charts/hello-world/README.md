@@ -44,12 +44,9 @@ This chart is deployed at sync wave `4` in ArgoCD — after all of the above (wa
 ## Chart structure
 
 ```
-hello-world/
+helm-charts/hello-world/
 ├── Chart.yaml
 ├── values.yaml             # Base values — image, resources, vault config
-├── values-dev.yaml         # Dev overrides — image tag, ingress host
-├── values-uat.yaml
-├── values-prod.yaml
 └── templates/
     ├── _helpers.tpl         # Name/label helpers
     ├── serviceaccount.yaml
@@ -86,20 +83,15 @@ ESO will pick up the new value within the configured `refreshInterval` (default 
 
 ## Step 2 — Deploy via ArgoCD
 
-Apply the ArgoCD Application for the target environment:
+This chart is deployed automatically by the root ArgoCD Application for each environment. If the root app is already running, no action is needed — ArgoCD will create the `hello-world-<env>` Application at sync wave 4.
+
+To bootstrap an environment for the first time, apply its root app once:
 
 ```bash
-# Dev
-kubectl apply -f argocd/dev/hello-world.yaml
-
-# UAT
-kubectl apply -f argocd/uat/hello-world.yaml
-
-# Prod
-kubectl apply -f argocd/prod/hello-world.yaml
+kubectl apply -f argocd/root-apps/dev.yaml   # or uat.yaml / prod.yaml
 ```
 
-ArgoCD will render the chart using `values.yaml` + the matching `values-<env>.yaml` and sync it to the `hello-world` namespace on the target cluster.
+ArgoCD renders the chart using `helm-charts/hello-world/values.yaml` (base) merged with `argocd/environments/<env>/hello-world/values.yaml` (env overrides) and the image tag from `argocd/app-versions-<env>.yaml`.
 
 ---
 
@@ -174,7 +166,7 @@ kubectl port-forward svc/hello-world-hello-world 8080:80 -n hello-world
 Adding a new secret from Vault requires only a values change — no template edits:
 
 ```yaml
-# values-dev.yaml
+# argocd/environments/dev/hello-world/values.yaml
 vault:
   secrets:
     - vaultKey: db_password
