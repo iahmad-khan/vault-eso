@@ -1,0 +1,530 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: kubernetes-alerts
+  namespace: monitoring
+  # Source: https://samber.github.io/awesome-prometheus-alerts/rules/orchestrators/kubernetes/
+spec:
+  groups:
+
+    - name: kubernetes.nodes
+      rules:
+        - alert: KubernetesNodeNotReady
+          expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Node {{ $labels.node }} has been unready for a long time"
+            description: >
+              Node {{ $labels.node }} has been unready for more than 10 minutes.
+              Workloads on this node may be evicted. Check node events:
+              kubectl describe node {{ $labels.node }}
+
+        - alert: KubernetesNodeSchedulingDisabled
+          expr: kube_node_spec_taint{key="node.kubernetes.io/unschedulable"} == 1
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Node {{ $labels.node }} has been marked unschedulable for >30m"
+            description: >
+              Node {{ $labels.node }} has had scheduling disabled for over 30 minutes.
+              This is expected during maintenance, but may be an oversight otherwise.
+
+        - alert: KubernetesNodeMemoryPressure
+          expr: kube_node_status_condition{condition="MemoryPressure",status="true"} == 1
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Node {{ $labels.node }} is under memory pressure"
+            description: >
+              Node {{ $labels.node }} has MemoryPressure=true. The kubelet will
+              begin evicting pods to reclaim memory.
+
+        - alert: KubernetesNodeDiskPressure
+          expr: kube_node_status_condition{condition="DiskPressure",status="true"} == 1
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Node {{ $labels.node }} is under disk pressure"
+            description: >
+              Node {{ $labels.node }} has DiskPressure=true. The kubelet will
+              begin evicting pods to reclaim disk space.
+
+        - alert: KubernetesNodeNetworkUnavailable
+          expr: kube_node_status_condition{condition="NetworkUnavailable",status="true"} == 1
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Node {{ $labels.node }} network is unavailable"
+            description: >
+              Node {{ $labels.node }} has NetworkUnavailable=true. Check the
+              CNI plugin and network configuration on this node.
+
+        - alert: KubernetesNodeOutOfPodCapacity
+          expr: |
+            sum by (node) (
+              (kube_pod_status_phase{phase="Running"} == 1)
+              + on(pod, namespace) group_left(node)
+              (0 * kube_pod_info{pod_template_hash=""})
+            ) / sum by (node) (
+              kube_node_status_allocatable{resource="pods"}
+            ) * 100 > 90
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Node {{ $labels.node }} is approaching pod capacity ({{ $value | printf \"%.0f\" }}%)"
+            description: >
+              Node {{ $labels.node }} is running {{ $value | printf "%.0f" }}% of its
+              maximum pod capacity. New pods may fail to schedule onto this node.
+
+    - name: kubernetes.pods
+      rules:
+        - alert: KubernetesPodCrashLooping
+          expr: increase(kube_pod_container_status_restarts_total[1m]) > 3
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is crash-looping"
+            description: >
+              Container {{ $labels.container }} in pod {{ $labels.pod }}
+              (namespace {{ $labels.namespace }}) restarted more than 3 times
+              in 1 minute. Check logs:
+              kubectl logs -n {{ $labels.namespace }} {{ $labels.pod }} -c {{ $labels.container }} --previous
+
+        - alert: KubernetesPodNotHealthy
+          expr: |
+            min_over_time(
+              sum by (namespace, pod) (
+                kube_pod_status_phase{phase=~"Pending|Unknown|Failed"}
+              )[15m:1m]
+            ) > 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has been unhealthy for 15m"
+            description: >
+              Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has been
+              in a non-Running phase (Pending/Unknown/Failed) for 15+ minutes.
+              Check events: kubectl describe pod -n {{ $labels.namespace }} {{ $labels.pod }}
+
+        - alert: KubernetesContainerOomKiller
+          expr: |
+            (kube_pod_container_status_restarts_total - kube_pod_container_status_restarts_total offset 10m >= 1)
+            and ignoring (reason)
+            min_over_time(kube_pod_container_status_last_terminated_reason{reason="OOMKilled"}[10m]) == 1
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Container {{ $labels.namespace }}/{{ $labels.pod }}/{{ $labels.container }} was OOMKilled"
+            description: >
+              Container {{ $labels.container }} in pod {{ $labels.pod }}
+              (namespace {{ $labels.namespace }}) was recently killed by the OOM killer.
+              The container's memory limit may be too low or there is a memory leak.
+
+    - name: kubernetes.workloads
+      rules:
+        - alert: KubernetesDeploymentReplicasMismatch
+          expr: |
+            kube_deployment_spec_replicas != kube_deployment_status_replicas_available
+              and kube_deployment_spec_replicas != kube_deployment_status_replicas_updated
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has unavailable replicas"
+            description: >
+              Deployment {{ $labels.deployment }} in namespace {{ $labels.namespace }}
+              has had unavailable replicas for 10+ minutes.
+
+        - alert: KubernetesDeploymentGenerationMismatch
+          expr: kube_deployment_status_observed_generation != kube_deployment_metadata_generation
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} generation mismatch — rollback may have failed"
+            description: >
+              The observed generation of deployment {{ $labels.deployment }} in namespace
+              {{ $labels.namespace }} does not match its metadata generation. This typically
+              indicates a failed rollout or rollback that could not complete.
+
+        - alert: KubernetesReplicaSetReplicasMismatch
+          expr: kube_replicaset_spec_replicas != kube_replicaset_status_ready_replicas
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ReplicaSet {{ $labels.namespace }}/{{ $labels.replicaset }} desired count not met"
+            description: >
+              ReplicaSet {{ $labels.replicaset }} in namespace {{ $labels.namespace }}
+              has had fewer ready replicas than desired for 10+ minutes.
+
+        - alert: KubernetesStatefulSetReplicasMismatch
+          expr: kube_statefulset_status_replicas_ready != kube_statefulset_status_replicas
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "StatefulSet {{ $labels.namespace }}/{{ $labels.statefulset }} has unready replicas"
+            description: >
+              StatefulSet {{ $labels.statefulset }} in namespace {{ $labels.namespace }}
+              has had fewer ready replicas than desired for 10+ minutes.
+
+        - alert: KubernetesStatefulSetDown
+          expr: |
+            (kube_statefulset_status_replicas_ready / kube_statefulset_status_replicas_current) < 1
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "StatefulSet {{ $labels.namespace }}/{{ $labels.statefulset }} has scaled down unexpectedly"
+            description: >
+              StatefulSet {{ $labels.statefulset }} in namespace {{ $labels.namespace }}
+              has fewer ready replicas than current replicas. Application may be degraded.
+
+        - alert: KubernetesStatefulSetGenerationMismatch
+          expr: kube_statefulset_status_observed_generation != kube_statefulset_metadata_generation
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "StatefulSet {{ $labels.namespace }}/{{ $labels.statefulset }} generation mismatch — rollback may have failed"
+            description: >
+              The observed generation of StatefulSet {{ $labels.statefulset }} in namespace
+              {{ $labels.namespace }} does not match its metadata generation.
+
+        - alert: KubernetesStatefulSetUpdateNotRolledOut
+          expr: |
+            max without (revision) (
+              kube_statefulset_status_current_revision
+              unless kube_statefulset_status_update_revision
+            ) * (
+              kube_statefulset_replicas != kube_statefulset_status_replicas_updated
+            )
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "StatefulSet {{ $labels.namespace }}/{{ $labels.statefulset }} update has not rolled out"
+            description: >
+              StatefulSet {{ $labels.statefulset }} in namespace {{ $labels.namespace }}
+              has a pending update that has not finished rolling out after 10 minutes.
+
+        - alert: KubernetesDaemonSetRolloutStuck
+          expr: |
+            kube_daemonset_status_number_ready / kube_daemonset_status_desired_number_scheduled * 100 < 100
+              or kube_daemonset_status_desired_number_scheduled - kube_daemonset_status_current_number_scheduled > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "DaemonSet {{ $labels.namespace }}/{{ $labels.daemonset }} rollout is stuck"
+            description: >
+              DaemonSet {{ $labels.daemonset }} in namespace {{ $labels.namespace }}
+              has pods that are not ready or not yet scheduled after 10 minutes.
+
+        - alert: KubernetesDaemonSetMisscheduled
+          expr: kube_daemonset_status_number_misscheduled > 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "DaemonSet {{ $labels.namespace }}/{{ $labels.daemonset }} has misscheduled pods"
+            description: >
+              DaemonSet {{ $labels.daemonset }} in namespace {{ $labels.namespace }}
+              has {{ $value }} pods running on nodes where they should not be scheduled.
+              This may indicate a node selector or toleration misconfiguration.
+
+    - name: kubernetes.hpa
+      rules:
+        - alert: KubernetesHPAScaleInability
+          expr: |
+            kube_horizontalpodautoscaler_status_current_replicas == kube_horizontalpodautoscaler_spec_max_replicas
+              and kube_horizontalpodautoscaler_status_condition{condition="ScalingLimited",status="true"} == 1
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "HPA {{ $labels.namespace }}/{{ $labels.horizontalpodautoscaler }} is at max and scaling is limited"
+            description: >
+              HPA {{ $labels.horizontalpodautoscaler }} in namespace {{ $labels.namespace }}
+              is at its maximum of {{ $value }} replicas and the ScalingLimited condition
+              is true. Consider raising the max replica count or investigating the load.
+
+        - alert: KubernetesHPAMetricsUnavailability
+          expr: |
+            kube_horizontalpodautoscaler_status_condition{
+              status="false",
+              condition="ScalingActive"
+            } == 1
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "HPA {{ $labels.namespace }}/{{ $labels.horizontalpodautoscaler }} cannot collect metrics"
+            description: >
+              HPA {{ $labels.horizontalpodautoscaler }} in namespace {{ $labels.namespace }}
+              has ScalingActive=false. The metrics source (metrics-server or custom metrics
+              adapter) may be unavailable, preventing scaling decisions.
+
+        - alert: KubernetesHPAScaleMaximum
+          expr: |
+            kube_horizontalpodautoscaler_status_desired_replicas
+              >= kube_horizontalpodautoscaler_spec_max_replicas
+          for: 2m
+          labels:
+            severity: info
+          annotations:
+            summary: "HPA {{ $labels.namespace }}/{{ $labels.horizontalpodautoscaler }} has reached maximum replicas"
+            description: >
+              HPA {{ $labels.horizontalpodautoscaler }} in namespace {{ $labels.namespace }}
+              desired replicas have reached the maximum of {{ $value }}.
+              Monitor load and consider adjusting the max if sustained.
+
+        - alert: KubernetesHPAUnderutilized
+          expr: |
+            max_over_time(kube_horizontalpodautoscaler_status_current_replicas[1d])
+              / avg_over_time(kube_horizontalpodautoscaler_spec_max_replicas[1d]) < 0.5
+          for: 0m
+          labels:
+            severity: info
+          annotations:
+            summary: "HPA {{ $labels.namespace }}/{{ $labels.horizontalpodautoscaler }} is underutilized"
+            description: >
+              HPA {{ $labels.horizontalpodautoscaler }} in namespace {{ $labels.namespace }}
+              has never exceeded 50% of its max replica count over the last day.
+              The max replica limit may be set too high; consider reducing it to save cost.
+
+    - name: kubernetes.storage
+      rules:
+        - alert: KubernetesPersistentVolumeClaimPending
+          expr: kube_persistentvolumeclaim_status_phase{phase="Pending"} == 1
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} is pending"
+            description: >
+              PersistentVolumeClaim {{ $labels.persistentvolumeclaim }} in namespace
+              {{ $labels.namespace }} has been Pending for 2+ minutes.
+              The StorageClass provisioner may be unavailable or there are
+              insufficient resources.
+
+        - alert: KubernetesVolumeOutOfDiskSpace
+          expr: |
+            kubelet_volume_stats_available_bytes
+              / kubelet_volume_stats_capacity_bytes * 100 < 10
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} has less than 10% free"
+            description: >
+              PVC {{ $labels.persistentvolumeclaim }} in namespace {{ $labels.namespace }}
+              has only {{ $value | printf "%.1f" }}% free space remaining.
+
+        - alert: KubernetesVolumeFullInFourDays
+          expr: |
+            predict_linear(kubelet_volume_stats_available_bytes[6h], 4 * 24 * 3600) < 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} will fill within 4 days"
+            description: >
+              Based on the current fill rate, PVC {{ $labels.persistentvolumeclaim }}
+              in namespace {{ $labels.namespace }} is projected to run out of disk space
+              within 4 days. Expand the volume or clean up data.
+
+        - alert: KubernetesPersistentVolumeError
+          expr: kube_persistentvolume_status_phase{phase=~"Failed|Pending"} > 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: "PersistentVolume {{ $labels.persistentvolume }} is in a {{ $labels.phase }} state"
+            description: >
+              PersistentVolume {{ $labels.persistentvolume }} is in {{ $labels.phase }} phase.
+              This may indicate a problem with the underlying storage backend or a failed
+              provisioning/binding operation.
+
+    - name: kubernetes.jobs
+      rules:
+        - alert: KubernetesJobFailed
+          expr: kube_job_status_failed > 0
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Job {{ $labels.namespace }}/{{ $labels.job_name }} has failed pods"
+            description: >
+              Job {{ $labels.job_name }} in namespace {{ $labels.namespace }}
+              has {{ $value }} failed pod(s). Check logs:
+              kubectl logs -n {{ $labels.namespace }} -l job-name={{ $labels.job_name }}
+
+        - alert: KubernetesJobNotStarting
+          expr: |
+            time() - kube_job_status_start_time > 600
+              and kube_job_status_active == 0
+              and kube_job_status_succeeded == 0
+              and kube_job_status_failed == 0
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Job {{ $labels.namespace }}/{{ $labels.job_name }} has not started within 10m"
+            description: >
+              Job {{ $labels.job_name }} in namespace {{ $labels.namespace }} was
+              created more than 10 minutes ago but has no active, succeeded, or failed
+              pods. The pod may be unschedulable.
+
+        - alert: KubernetesCronJobFailing
+          expr: |
+            kube_cronjob_status_last_successful_time < kube_cronjob_status_last_schedule_time
+              and kube_cronjob_status_active == 0
+              and kube_cronjob_spec_suspend == 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: "CronJob {{ $labels.namespace }}/{{ $labels.cronjob }} last run failed"
+            description: >
+              CronJob {{ $labels.cronjob }} in namespace {{ $labels.namespace }}
+              last scheduled at {{ $labels.kube_cronjob_status_last_schedule_time }}
+              but has no successful run since. The job may be failing silently.
+
+        - alert: KubernetesCronJobSuspended
+          expr: kube_cronjob_spec_suspend != 0
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "CronJob {{ $labels.namespace }}/{{ $labels.cronjob }} is suspended"
+            description: >
+              CronJob {{ $labels.cronjob }} in namespace {{ $labels.namespace }}
+              has spec.suspend=true. This may be intentional, but verify it
+              is not suspended by accident.
+
+        - alert: KubernetesCronJobTooLong
+          expr: |
+            time() - kube_cronjob_status_last_schedule_time > 3600
+              and kube_cronjob_status_active == 1
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "CronJob {{ $labels.namespace }}/{{ $labels.cronjob }} has been running for >1h"
+            description: >
+              CronJob {{ $labels.cronjob }} in namespace {{ $labels.namespace }}
+              has had an active job running for more than 1 hour.
+              Check for a hung or infinite-looping job.
+
+        - alert: KubernetesJobSlowCompletion
+          expr: kube_job_spec_completions - kube_job_status_succeeded > 0
+          for: 12h
+          labels:
+            severity: critical
+          annotations:
+            summary: "Job {{ $labels.namespace }}/{{ $labels.job_name }} is not completing"
+            description: >
+              Job {{ $labels.job_name }} in namespace {{ $labels.namespace }}
+              still has {{ $value }} incomplete completions after 12 hours.
+
+    - name: kubernetes.apiserver
+      rules:
+        - alert: KubernetesAPIServerErrors
+          expr: |
+            sum(rate(apiserver_request_total{job="apiserver", code=~"^(?:5..)$"}[2m]))
+              / sum(rate(apiserver_request_total{job="apiserver"}[2m])) * 100 > 3
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Kubernetes API server error rate is above 3% ({{ $value | printf \"%.1f\" }}%)"
+            description: >
+              The Kubernetes API server is returning 5xx errors at
+              {{ $value | printf "%.1f" }}% of requests. This indicates control-plane
+              instability that may affect cluster operations.
+
+        - alert: KubernetesAPIClientErrors
+          expr: |
+            (
+              sum(rate(rest_client_requests_total{code=~"(4|5).."}[2m])) by (instance, job)
+              / sum(rate(rest_client_requests_total[2m])) by (instance, job)
+            ) * 100 > 1
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Kubernetes API client {{ $labels.job }}/{{ $labels.instance }} error rate above 1%"
+            description: >
+              Client {{ $labels.instance }} ({{ $labels.job }}) is receiving
+              {{ $value | printf "%.1f" }}% error responses from the API server.
+
+        - alert: KubernetesClientCertificateExpiresNextWeek
+          expr: |
+            apiserver_client_certificate_expiration_seconds_count{job="apiserver"} > 0
+              and histogram_quantile(
+                0.01,
+                sum by (job, le) (
+                  rate(apiserver_client_certificate_expiration_seconds_bucket{job="apiserver"}[5m])
+                )
+              ) < 7 * 24 * 3600
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "A Kubernetes client certificate expires within 7 days"
+            description: >
+              A client certificate used by the API server expires in less than
+              7 days. Renew the certificate before it expires to avoid
+              authentication failures.
+
+        - alert: KubernetesClientCertificateExpiresSoon
+          expr: |
+            apiserver_client_certificate_expiration_seconds_count{job="apiserver"} > 0
+              and histogram_quantile(
+                0.01,
+                sum by (job, le) (
+                  rate(apiserver_client_certificate_expiration_seconds_bucket{job="apiserver"}[5m])
+                )
+              ) < 24 * 3600
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: "A Kubernetes client certificate expires within 24 hours"
+            description: >
+              A client certificate used by the API server expires in less than
+              24 hours. Immediate renewal is required to prevent authentication
+              failures.
+
+        - alert: KubernetesAPIServerLatency
+          expr: |
+            histogram_quantile(
+              0.99,
+              sum(rate(
+                apiserver_request_duration_seconds_bucket{
+                  subresource!="log",
+                  verb!~"LIST|WATCH|WATCHLIST|DELETECOLLECTION|PROXY|CONNECT"
+                }[10m]
+              )) WITHOUT (instance, pod)
+            ) > 1
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Kubernetes API server p99 latency is above 1s ({{ $value | printf \"%.2f\" }}s)"
+            description: >
+              The 99th percentile latency of the Kubernetes API server is
+              {{ $value | printf "%.2f" }}s, above the 1-second threshold.
+              This may affect controller reconciliation loops and kubectl responsiveness.

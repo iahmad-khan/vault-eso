@@ -49,3 +49,37 @@ apps:
     syncWave: "4"
     namespace: hello-world
     imageTag: "latest"
+
+  monitoring:
+    enabled: true
+    syncWave: "0"
+    chartVersion: "67.5.0"
+    namespace: monitoring
+
+  thanos:
+    enabled: true
+    syncWave: "1"
+    chartVersion: "15.7.0"
+    namespace: monitoring
+
+  k8sMonitoring:
+    enabled: true
+    syncWave: "3"
+    namespace: monitoring
+
+  certManager:
+    enabled: true
+    syncWave: "0"
+    chartVersion: "v1.14.5"
+    namespace: cert-manager
+
+  certManagerIssuers:
+    enabled: true
+    syncWave: "1"
+    namespace: cert-manager
+
+  externalDns:
+    enabled: true
+    syncWave: "0"
+    chartVersion: "1.14.4"
+    namespace: external-dns

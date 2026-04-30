@@ -1,0 +1,11 @@
+aws:
+  region: <AWS_REGION>
+
+txtOwnerId: prod-cluster
+
+domainFilters:
+  - <YOUR_DOMAIN>
+
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::<PROD_AWS_ACCOUNT_ID>:role/external-dns-prod

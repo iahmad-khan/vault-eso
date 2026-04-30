@@ -1,0 +1,32 @@
+{{- if .Values.apps.certManager.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-{{ .Values.env }}
+  namespace: {{ .Values.argoCDNamespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.apps.certManager.syncWave | quote }}
+spec:
+  project: default
+  sources:
+    - repoURL: https://charts.jetstack.io
+      chart: cert-manager
+      targetRevision: {{ .Values.apps.certManager.chartVersion | quote }}
+      helm:
+        valueFiles:
+          - $values/vault-eso/argocd/app-default-values/cert-manager/values/base.yaml
+          - $values/vault-eso/argocd/environments/{{ .Values.env }}/cert-manager/values.yaml
+    - repoURL: {{ .Values.repoURL }}
+      targetRevision: {{ .Values.targetRevision }}
+      ref: values
+  destination:
+    name: {{ .Values.env }}
+    namespace: {{ .Values.apps.certManager.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+{{- end }}

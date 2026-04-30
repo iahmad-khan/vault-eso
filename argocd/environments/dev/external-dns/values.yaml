@@ -1,0 +1,11 @@
+aws:
+  region: <AWS_REGION>
+
+txtOwnerId: dev-cluster
+
+domainFilters:
+  - dev.<YOUR_DOMAIN>
+
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::<DEV_AWS_ACCOUNT_ID>:role/external-dns-dev

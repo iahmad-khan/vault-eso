@@ -1,0 +1,30 @@
+provider: aws
+
+aws:
+  region: ""
+  zoneType: public
+
+sources:
+  - ingress
+  - service
+
+policy: sync
+
+txtOwnerId: ""
+
+domainFilters: []
+
+serviceAccount:
+  create: true
+  annotations: {}
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 32Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi
+
+logLevel: info
+logFormat: json

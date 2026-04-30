@@ -1,0 +1,33 @@
+{{- if .Values.apps.monitoring.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring-{{ .Values.env }}
+  namespace: {{ .Values.argoCDNamespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.apps.monitoring.syncWave | quote }}
+spec:
+  project: default
+  sources:
+    - repoURL: https://prometheus-community.github.io/helm-charts
+      chart: kube-prometheus-stack
+      targetRevision: {{ .Values.apps.monitoring.chartVersion | quote }}
+      helm:
+        releaseName: kube-prometheus-stack
+        valueFiles:
+          - $values/vault-eso/argocd/app-default-values/monitoring/values/base.yaml
+          - $values/vault-eso/argocd/environments/{{ .Values.env }}/monitoring/values.yaml
+    - repoURL: {{ .Values.repoURL }}
+      targetRevision: {{ .Values.targetRevision }}
+      ref: values
+  destination:
+    name: {{ .Values.env }}
+    namespace: {{ .Values.apps.monitoring.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+{{- end }}

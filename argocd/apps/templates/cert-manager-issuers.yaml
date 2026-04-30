@@ -1,0 +1,25 @@
+{{- if .Values.apps.certManagerIssuers.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-issuers-{{ .Values.env }}
+  namespace: {{ .Values.argoCDNamespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.apps.certManagerIssuers.syncWave | quote }}
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.repoURL }}
+    targetRevision: {{ .Values.targetRevision }}
+    path: vault-eso/argocd/app-default-values/cert-manager/issuers/{{ .Values.env }}
+  destination:
+    name: {{ .Values.env }}
+    namespace: {{ .Values.apps.certManagerIssuers.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+{{- end }}

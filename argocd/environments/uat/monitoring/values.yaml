@@ -1,0 +1,68 @@
+prometheus:
+  prometheusSpec:
+    replicas: 1
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          resources:
+            requests:
+              storage: 30Gi
+    thanos:
+      objectStorageConfig:
+        secret:
+          config:
+            bucket: thanos-uat
+            region: <AWS_REGION>
+    serviceAccount:
+      annotations:
+        eks.amazonaws.com/role-arn: arn:aws:iam::<UAT_AWS_ACCOUNT_ID>:role/thanos-uat
+
+grafana:
+  adminPassword: <GRAFANA_ADMIN_PASSWORD>
+  ingress:
+    hosts:
+      - grafana.uat.<YOUR_DOMAIN>
+
+alertmanager:
+  alertmanagerSpec:
+    replicas: 1
+  ingress:
+    hosts:
+      - alertmanager.uat.<YOUR_DOMAIN>
+  config:
+    global:
+      resolve_timeout: 5m
+    inhibit_rules:
+      - source_matchers:
+          - severity = "critical"
+        target_matchers:
+          - severity = "warning"
+        equal: [alertname, namespace]
+    route:
+      group_by: [alertname, namespace]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 2h
+      receiver: slack-uat
+    receivers:
+      - name: slack-uat
+        slack_configs:
+          - api_url_file: /etc/alertmanager/secrets/alertmanager-credentials/slack_webhook_url
+            channel: '#staging-alerts'
+            send_resolved: true
+            color: >-
+              {{ if eq .Status "firing" }}
+                {{ if eq (index .Alerts 0).Labels.severity "critical" }}danger{{ else }}warning{{ end }}
+              {{ else }}good{{ end }}
+            title: >-
+              {{ if eq .Status "firing" }}:fire:{{ else }}:white_check_mark:{{ end }}
+              [{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}
+              ({{ .Alerts | len }} alert{{ if gt (len .Alerts) 1 }}s{{ end }})
+            text: |-
+              {{ range .Alerts }}
+              *Namespace:* {{ .Labels.namespace }}
+              *Severity:* {{ .Labels.severity | toUpper }}
+              *Summary:* {{ .Annotations.summary }}
+              *Description:* {{ .Annotations.description }}
+              {{ end }}
+            footer: "uat cluster"

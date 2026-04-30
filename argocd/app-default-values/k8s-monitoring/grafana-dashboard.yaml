@@ -1,0 +1,651 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k8s-grafana-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  k8s-dashboard.json: |
+    {
+      "title": "Kubernetes Overview",
+      "uid": "k8s-monitoring",
+      "description": "Pod health, restarts, crash loops, HPA status, node pressure and PVC usage",
+      "tags": ["kubernetes", "pods", "hpa", "nodes"],
+      "schemaVersion": 38,
+      "version": 1,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "graphTooltip": 1,
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "type": "datasource",
+            "query": "prometheus",
+            "label": "Data Source",
+            "hide": 0,
+            "refresh": 1
+          },
+          {
+            "name": "namespace",
+            "type": "query",
+            "label": "Namespace",
+            "datasource": { "type": "prometheus", "uid": "${datasource}" },
+            "query": "label_values(kube_pod_info, namespace)",
+            "hide": 0,
+            "refresh": 2,
+            "sort": 1,
+            "includeAll": true,
+            "allValue": ".*",
+            "current": { "value": "$__all", "text": "All" }
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Running Pods",
+          "description": "Pods currently in Running phase across selected namespace(s)",
+          "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "green", "value": 1 }
+                ]
+              },
+              "mappings": []
+            }
+          },
+          "targets": [
+            {
+              "expr": "count(kube_pod_status_phase{phase=\"Running\", namespace=~\"$namespace\"}) or vector(0)",
+              "legendFormat": "Running",
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "CrashLoopBackOff Pods",
+          "description": "Pods currently in CrashLoopBackOff state",
+          "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "red", "value": 1 }
+                ]
+              },
+              "mappings": []
+            }
+          },
+          "targets": [
+            {
+              "expr": "count(kube_pod_container_status_waiting_reason{reason=\"CrashLoopBackOff\", namespace=~\"$namespace\"} == 1) or vector(0)",
+              "legendFormat": "CrashLoop",
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "OOMKilled (last termination)",
+          "description": "Containers whose last termination reason was OOMKilled",
+          "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "orange", "value": 1 }
+                ]
+              },
+              "mappings": []
+            }
+          },
+          "targets": [
+            {
+              "expr": "count(kube_pod_container_status_last_terminated_reason{reason=\"OOMKilled\", namespace=~\"$namespace\"} == 1) or vector(0)",
+              "legendFormat": "OOMKilled",
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Nodes Ready",
+          "description": "Number of nodes in Ready state vs total nodes",
+          "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "green", "value": 1 }
+                ]
+              },
+              "mappings": []
+            }
+          },
+          "targets": [
+            {
+              "expr": "count(kube_node_status_condition{condition=\"Ready\", status=\"true\"} == 1)",
+              "legendFormat": "Ready",
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "HPAs at Max Replicas",
+          "description": "HPAs currently running at their maximum replica count",
+          "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "orange", "value": 1 }
+                ]
+              },
+              "mappings": []
+            }
+          },
+          "targets": [
+            {
+              "expr": "count(kube_horizontalpodautoscaler_status_current_replicas == kube_horizontalpodautoscaler_spec_max_replicas) or vector(0)",
+              "legendFormat": "At Max",
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "type": "stat",
+          "title": "Pending PVCs",
+          "description": "PersistentVolumeClaims stuck in Pending state",
+          "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "red", "value": 1 }
+                ]
+              },
+              "mappings": []
+            }
+          },
+          "targets": [
+            {
+              "expr": "count(kube_persistentvolumeclaim_status_phase{phase=\"Pending\"} == 1) or vector(0)",
+              "legendFormat": "Pending PVCs",
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "Container Restart Rate (top 10)",
+          "description": "Restarts per 5 minutes for the highest-restart containers in the selected namespace",
+          "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "options": {
+            "tooltip": { "mode": "multi" },
+            "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": { "lineWidth": 2 }
+            }
+          },
+          "targets": [
+            {
+              "expr": "topk(10, rate(kube_pod_container_status_restarts_total{namespace=~\"$namespace\"}[5m]) * 300)",
+              "legendFormat": "{{namespace}}/{{pod}}/{{container}}"
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "Pod Phase Distribution",
+          "description": "Count of pods in each phase over time across selected namespace(s)",
+          "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "options": {
+            "tooltip": { "mode": "multi" },
+            "legend": { "displayMode": "list", "placement": "bottom" }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": { "lineWidth": 2, "fillOpacity": 20 }
+            },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "Running" },   "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] },
+              { "matcher": { "id": "byName", "options": "Pending" },   "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "yellow" } }] },
+              { "matcher": { "id": "byName", "options": "Failed" },    "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] },
+              { "matcher": { "id": "byName", "options": "Succeeded" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } }] }
+            ]
+          },
+          "targets": [
+            {
+              "expr": "count by(phase) (kube_pod_status_phase{namespace=~\"$namespace\"} == 1)",
+              "legendFormat": "{{phase}}"
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "type": "table",
+          "title": "CrashLoopBackOff & OOMKilled Pods",
+          "description": "Pods currently in CrashLoopBackOff or whose last termination was OOMKilled",
+          "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "options": {
+            "sortBy": [{ "displayName": "Namespace", "desc": false }]
+          },
+          "fieldConfig": {
+            "defaults": { "custom": { "align": "left" } },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "Reason" },
+                "properties": [{ "id": "custom.width", "value": 150 },
+                               { "id": "mappings", "value": [
+                                  { "type": "value", "options": { "CrashLoopBackOff": { "color": "red",    "text": "CrashLoopBackOff" } } },
+                                  { "type": "value", "options": { "OOMKilled":        { "color": "orange", "text": "OOMKilled" } } }
+                               ]}] }
+            ]
+          },
+          "transformations": [
+            { "id": "merge", "options": {} },
+            { "id": "organize", "options": {
+                "renameByName": {
+                  "namespace": "Namespace",
+                  "pod":       "Pod",
+                  "container": "Container",
+                  "reason":    "Reason"
+                },
+                "excludeByName": { "Time": true, "Value": true, "__name__": true, "job": true }
+              }
+            }
+          ],
+          "targets": [
+            {
+              "expr": "kube_pod_container_status_waiting_reason{reason=\"CrashLoopBackOff\", namespace=~\"$namespace\"} == 1",
+              "legendFormat": "",
+              "instant": true,
+              "format": "table"
+            },
+            {
+              "expr": "kube_pod_container_status_last_terminated_reason{reason=\"OOMKilled\", namespace=~\"$namespace\"} == 1",
+              "legendFormat": "",
+              "instant": true,
+              "format": "table"
+            }
+          ]
+        },
+        {
+          "id": 10,
+          "type": "table",
+          "title": "Top Restarting Containers (last 1h)",
+          "description": "Containers with the most cumulative restarts in the past hour",
+          "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "options": {
+            "sortBy": [{ "displayName": "Restarts", "desc": true }]
+          },
+          "fieldConfig": {
+            "defaults": { "custom": { "align": "left" } },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "Restarts" },
+                "properties": [
+                  { "id": "custom.width", "value": 90 },
+                  { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                      { "color": "green", "value": null },
+                      { "color": "orange", "value": 3 },
+                      { "color": "red", "value": 10 }
+                  ]}},
+                  { "id": "custom.displayMode", "value": "color-background" }
+                ]
+              }
+            ]
+          },
+          "transformations": [
+            { "id": "merge", "options": {} },
+            { "id": "organize", "options": {
+                "renameByName": {
+                  "namespace": "Namespace",
+                  "pod":       "Pod",
+                  "container": "Container",
+                  "Value":     "Restarts"
+                },
+                "excludeByName": { "Time": true, "__name__": true, "job": true }
+              }
+            }
+          ],
+          "targets": [
+            {
+              "expr": "topk(20, increase(kube_pod_container_status_restarts_total{namespace=~\"$namespace\"}[1h]))",
+              "legendFormat": "",
+              "instant": true,
+              "format": "table"
+            }
+          ]
+        },
+        {
+          "id": 11,
+          "type": "table",
+          "title": "HPA Status",
+          "description": "Current vs desired vs min/max replicas for all HPAs",
+          "gridPos": { "x": 0, "y": 20, "w": 24, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "options": {
+            "sortBy": [{ "displayName": "Namespace", "desc": false }]
+          },
+          "fieldConfig": {
+            "defaults": { "custom": { "align": "center" } },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "Current" },
+                "properties": [
+                  { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                      { "color": "green", "value": null }
+                  ]}},
+                  { "id": "custom.displayMode", "value": "color-background" }
+                ]
+              }
+            ]
+          },
+          "transformations": [
+            { "id": "merge", "options": {} },
+            { "id": "organize", "options": {
+                "renameByName": {
+                  "namespace":                     "Namespace",
+                  "horizontalpodautoscaler":        "HPA",
+                  "Value #A":                       "Min",
+                  "Value #B":                       "Max",
+                  "Value #C":                       "Desired",
+                  "Value #D":                       "Current"
+                },
+                "excludeByName": { "Time": true, "__name__": true, "job": true }
+              }
+            }
+          ],
+          "targets": [
+            {
+              "expr": "kube_horizontalpodautoscaler_spec_min_replicas{namespace=~\"$namespace\"}",
+              "legendFormat": "",
+              "instant": true,
+              "format": "table",
+              "refId": "A"
+            },
+            {
+              "expr": "kube_horizontalpodautoscaler_spec_max_replicas{namespace=~\"$namespace\"}",
+              "legendFormat": "",
+              "instant": true,
+              "format": "table",
+              "refId": "B"
+            },
+            {
+              "expr": "kube_horizontalpodautoscaler_status_desired_replicas{namespace=~\"$namespace\"}",
+              "legendFormat": "",
+              "instant": true,
+              "format": "table",
+              "refId": "C"
+            },
+            {
+              "expr": "kube_horizontalpodautoscaler_status_current_replicas{namespace=~\"$namespace\"}",
+              "legendFormat": "",
+              "instant": true,
+              "format": "table",
+              "refId": "D"
+            }
+          ]
+        },
+        {
+          "id": 12,
+          "type": "timeseries",
+          "title": "Node Memory Usage %",
+          "description": "Memory utilisation per node (used / total)",
+          "gridPos": { "x": 0, "y": 27, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "options": {
+            "tooltip": { "mode": "multi" },
+            "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0,
+              "max": 1,
+              "custom": { "lineWidth": 2 },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green",  "value": null },
+                  { "color": "orange", "value": 0.75 },
+                  { "color": "red",    "value": 0.90 }
+                ]
+              }
+            }
+          },
+          "targets": [
+            {
+              "expr": "1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)",
+              "legendFormat": "{{instance}}"
+            }
+          ]
+        },
+        {
+          "id": 13,
+          "type": "timeseries",
+          "title": "Node CPU Usage %",
+          "description": "CPU utilisation per node (1 - idle rate)",
+          "gridPos": { "x": 12, "y": 27, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "options": {
+            "tooltip": { "mode": "multi" },
+            "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0,
+              "max": 1,
+              "custom": { "lineWidth": 2 },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green",  "value": null },
+                  { "color": "orange", "value": 0.75 },
+                  { "color": "red",    "value": 0.90 }
+                ]
+              }
+            }
+          },
+          "targets": [
+            {
+              "expr": "1 - avg by(instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))",
+              "legendFormat": "{{instance}}"
+            }
+          ]
+        },
+        {
+          "id": 14,
+          "type": "table",
+          "title": "Node Status",
+          "description": "Ready/pressure conditions per node",
+          "gridPos": { "x": 0, "y": 35, "w": 12, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "options": {
+            "sortBy": [{ "displayName": "Node", "desc": false }]
+          },
+          "fieldConfig": {
+            "defaults": { "custom": { "align": "center" } },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "Ready" },
+                "properties": [
+                  { "id": "mappings", "value": [
+                      { "type": "value", "options": { "1": { "color": "green", "text": "Ready" } } },
+                      { "type": "value", "options": { "0": { "color": "red",   "text": "NotReady" } } }
+                  ]},
+                  { "id": "custom.displayMode", "value": "color-background" }
+                ]
+              }
+            ]
+          },
+          "transformations": [
+            { "id": "merge", "options": {} },
+            { "id": "organize", "options": {
+                "renameByName": {
+                  "node":    "Node",
+                  "Value #A": "Ready",
+                  "Value #B": "Memory Pressure",
+                  "Value #C": "Disk Pressure",
+                  "Value #D": "PID Pressure"
+                },
+                "excludeByName": { "Time": true, "__name__": true, "job": true, "condition": true, "status": true }
+              }
+            }
+          ],
+          "targets": [
+            {
+              "expr": "kube_node_status_condition{condition=\"Ready\",       status=\"true\"}",
+              "instant": true, "format": "table", "refId": "A"
+            },
+            {
+              "expr": "kube_node_status_condition{condition=\"MemoryPressure\", status=\"true\"}",
+              "instant": true, "format": "table", "refId": "B"
+            },
+            {
+              "expr": "kube_node_status_condition{condition=\"DiskPressure\",   status=\"true\"}",
+              "instant": true, "format": "table", "refId": "C"
+            },
+            {
+              "expr": "kube_node_status_condition{condition=\"PIDPressure\",    status=\"true\"}",
+              "instant": true, "format": "table", "refId": "D"
+            }
+          ]
+        },
+        {
+          "id": 15,
+          "type": "table",
+          "title": "PVC Usage",
+          "description": "Available vs capacity for mounted PersistentVolumes",
+          "gridPos": { "x": 12, "y": 35, "w": 12, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "options": {
+            "sortBy": [{ "displayName": "Used %", "desc": true }]
+          },
+          "fieldConfig": {
+            "defaults": { "custom": { "align": "left" } },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "Used %" },
+                "properties": [
+                  { "id": "unit", "value": "percentunit" },
+                  { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                      { "color": "green",  "value": null },
+                      { "color": "orange", "value": 0.80 },
+                      { "color": "red",    "value": 0.90 }
+                  ]}},
+                  { "id": "custom.displayMode", "value": "color-background" }
+                ]
+              },
+              { "matcher": { "id": "byName", "options": "Available" },
+                "properties": [{ "id": "unit", "value": "bytes" }]
+              },
+              { "matcher": { "id": "byName", "options": "Capacity" },
+                "properties": [{ "id": "unit", "value": "bytes" }]
+              }
+            ]
+          },
+          "transformations": [
+            { "id": "merge", "options": {} },
+            { "id": "organize", "options": {
+                "renameByName": {
+                  "namespace":               "Namespace",
+                  "persistentvolumeclaim":   "PVC",
+                  "Value #A":                "Available",
+                  "Value #B":                "Capacity",
+                  "Value #C":                "Used %"
+                },
+                "excludeByName": { "Time": true, "__name__": true, "job": true }
+              }
+            }
+          ],
+          "targets": [
+            {
+              "expr": "kubelet_volume_stats_available_bytes{namespace=~\"$namespace\"}",
+              "instant": true, "format": "table", "refId": "A"
+            },
+            {
+              "expr": "kubelet_volume_stats_capacity_bytes{namespace=~\"$namespace\"}",
+              "instant": true, "format": "table", "refId": "B"
+            },
+            {
+              "expr": "1 - (kubelet_volume_stats_available_bytes{namespace=~\"$namespace\"} / kubelet_volume_stats_capacity_bytes{namespace=~\"$namespace\"})",
+              "instant": true, "format": "table", "refId": "C"
+            }
+          ]
+        }
+      ]
+    }

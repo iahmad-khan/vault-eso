@@ -1,0 +1,109 @@
+prometheus:
+  prometheusSpec:
+    replicas: 2
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          resources:
+            requests:
+              storage: 50Gi
+    thanos:
+      objectStorageConfig:
+        secret:
+          config:
+            bucket: thanos-prod
+            region: <AWS_REGION>
+    serviceAccount:
+      annotations:
+        eks.amazonaws.com/role-arn: arn:aws:iam::<PROD_AWS_ACCOUNT_ID>:role/thanos-prod
+
+grafana:
+  adminPassword: <GRAFANA_ADMIN_PASSWORD>
+  ingress:
+    hosts:
+      - grafana.prod.<YOUR_DOMAIN>
+
+alertmanager:
+  alertmanagerSpec:
+    replicas: 3
+    storage:
+      volumeClaimTemplate:
+        spec:
+          resources:
+            requests:
+              storage: 5Gi
+  ingress:
+    hosts:
+      - alertmanager.prod.<YOUR_DOMAIN>
+  config:
+    global:
+      resolve_timeout: 5m
+    inhibit_rules:
+      - source_matchers:
+          - severity =~ "high|critical|emergency"
+        target_matchers:
+          - severity = "warning"
+        equal: [alertname, namespace]
+    route:
+      group_by: [alertname, namespace]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      receiver: slack-prod
+      routes:
+        # high / critical / emergency alerts go to both Slack and PagerDuty
+        - matchers:
+            - severity =~ "high|critical|emergency"
+          receiver: pagerduty-and-slack-prod
+    receivers:
+      - name: slack-prod
+        slack_configs:
+          - api_url_file: /etc/alertmanager/secrets/alertmanager-credentials/slack_webhook_url
+            channel: '#prod-alerts'
+            send_resolved: true
+            color: >-
+              {{ if eq .Status "firing" }}
+                {{ if eq (index .Alerts 0).Labels.severity "critical" }}danger{{ else }}warning{{ end }}
+              {{ else }}good{{ end }}
+            title: >-
+              {{ if eq .Status "firing" }}:fire:{{ else }}:white_check_mark:{{ end }}
+              [{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}
+              ({{ .Alerts | len }} alert{{ if gt (len .Alerts) 1 }}s{{ end }})
+            text: |-
+              {{ range .Alerts }}
+              *Namespace:* {{ .Labels.namespace }}
+              *Severity:* {{ .Labels.severity | toUpper }}
+              *Summary:* {{ .Annotations.summary }}
+              *Description:* {{ .Annotations.description }}
+              {{ end }}
+            footer: "prod cluster"
+
+      - name: pagerduty-and-slack-prod
+        # Slack notification for high/critical/emergency alerts
+        slack_configs:
+          - api_url_file: /etc/alertmanager/secrets/alertmanager-credentials/slack_webhook_url
+            channel: '#prod-alerts'
+            send_resolved: true
+            color: danger
+            title: >-
+              :rotating_light: [{{ .CommonLabels.severity | toUpper }}] {{ .CommonLabels.alertname }}
+              ({{ .Alerts | len }} alert{{ if gt (len .Alerts) 1 }}s{{ end }})
+            text: |-
+              {{ range .Alerts }}
+              *Namespace:* {{ .Labels.namespace }}
+              *Severity:* {{ .Labels.severity | toUpper }}
+              *Summary:* {{ .Annotations.summary }}
+              *Description:* {{ .Annotations.description }}
+              {{ end }}
+            footer: "prod cluster — also paged on-call via PagerDuty"
+        # PagerDuty on-call page for high/critical/emergency alerts
+        pagerduty_configs:
+          - routing_key_file: /etc/alertmanager/secrets/alertmanager-credentials/pagerduty_routing_key
+            description: '{{ .CommonLabels.alertname }}: {{ .CommonAnnotations.summary }}'
+            severity: '{{ .CommonLabels.severity }}'
+            client: alertmanager-prod
+            details:
+              firing: '{{ .Alerts.Firing | len }}'
+              namespace: '{{ .CommonLabels.namespace }}'
+              summary: '{{ .CommonAnnotations.summary }}'
+              description: '{{ .CommonAnnotations.description }}'

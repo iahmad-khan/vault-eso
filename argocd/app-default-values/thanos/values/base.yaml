@@ -1,0 +1,59 @@
+objstoreConfig: ""
+
+query:
+  enabled: true
+  stores:
+    - dnssrv+_grpc._tcp.kube-prometheus-stack-thanos-discovery.monitoring.svc.cluster.local
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+queryFrontend:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+storegateway:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: gp3
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+compactor:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: gp3
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+ruler:
+  enabled: false
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true

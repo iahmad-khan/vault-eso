@@ -1,0 +1,10 @@
+objstoreConfig: |
+  type: S3
+  config:
+    bucket: thanos-prod
+    endpoint: s3.amazonaws.com
+    region: <AWS_REGION>
+
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::<PROD_AWS_ACCOUNT_ID>:role/thanos-prod

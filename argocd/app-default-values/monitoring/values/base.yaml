@@ -1,0 +1,115 @@
+prometheus:
+  prometheusSpec:
+    retention: 2h
+    retentionSize: ""
+    # Discover ServiceMonitors/PodMonitors/PrometheusRules across all namespaces
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 20Gi
+    thanos:
+      image:
+        registry: quay.io
+        repository: thanos/thanos
+        tag: v0.36.1
+      objectStorageConfig:
+        secret:
+          type: S3
+          config:
+            bucket: ""
+            endpoint: s3.amazonaws.com
+            region: ""
+    serviceAccount:
+      annotations: {}
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+  thanosService:
+    enabled: true
+  thanosServiceMonitor:
+    enabled: true
+
+grafana:
+  adminPassword: ""
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+    datasources:
+      enabled: true
+  additionalDataSources:
+    - name: Thanos
+      type: prometheus
+      url: http://thanos-query.monitoring.svc.cluster.local:9090
+      isDefault: false
+      access: proxy
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts: []
+  persistence:
+    enabled: true
+    storageClassName: gp3
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+alertmanager:
+  alertmanagerSpec:
+    replicas: 1
+    # Mount the ESO-managed secret so alertmanager.config can use
+    # api_url_file / routing_key_file instead of embedding credentials.
+    secrets:
+      - alertmanager-credentials
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 2Gi
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts: []
+
+kubeStateMetrics:
+  enabled: true
+
+nodeExporter:
+  enabled: true
+
+prometheusOperator:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi

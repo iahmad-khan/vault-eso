@@ -1,0 +1,11 @@
+aws:
+  region: <AWS_REGION>
+
+txtOwnerId: uat-cluster
+
+domainFilters:
+  - uat.<YOUR_DOMAIN>
+
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::<UAT_AWS_ACCOUNT_ID>:role/external-dns-uat

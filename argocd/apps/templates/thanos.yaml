@@ -1,0 +1,33 @@
+{{- if .Values.apps.thanos.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: thanos-{{ .Values.env }}
+  namespace: {{ .Values.argoCDNamespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.apps.thanos.syncWave | quote }}
+spec:
+  project: default
+  sources:
+    - repoURL: https://charts.bitnami.com/bitnami
+      chart: thanos
+      targetRevision: {{ .Values.apps.thanos.chartVersion | quote }}
+      helm:
+        releaseName: thanos
+        valueFiles:
+          - $values/vault-eso/argocd/app-default-values/thanos/values/base.yaml
+          - $values/vault-eso/argocd/environments/{{ .Values.env }}/thanos/values.yaml
+    - repoURL: {{ .Values.repoURL }}
+      targetRevision: {{ .Values.targetRevision }}
+      ref: values
+  destination:
+    name: {{ .Values.env }}
+    namespace: {{ .Values.apps.thanos.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+{{- end }}
