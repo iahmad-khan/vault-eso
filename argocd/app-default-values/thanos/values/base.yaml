@@ -4,6 +4,7 @@ query:
   enabled: true
   stores:
     - dnssrv+_grpc._tcp.kube-prometheus-stack-thanos-discovery.monitoring.svc.cluster.local
+    - dnssrv+_grpc._tcp.app-prometheus-thanos-discovery.monitoring.svc.cluster.local
   resources:
     requests:
       cpu: 100m

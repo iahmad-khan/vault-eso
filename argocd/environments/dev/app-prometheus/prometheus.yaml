@@ -1,0 +1,69 @@
+apiVersion: monitoring.coreos.com/v1
+kind: Prometheus
+metadata:
+  name: app-prometheus
+  namespace: monitoring
+spec:
+  replicas: 1
+  serviceAccountName: app-prometheus
+  externalLabels:
+    prometheus: apps
+    cluster: dev
+  retention: 2h
+  serviceMonitorSelector: {}
+  serviceMonitorNamespaceSelector:
+    matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+          - monitoring
+          - vault
+          - external-secrets
+          - kube-system
+          - argocd
+          - cert-manager
+          - external-dns
+          - envoy-gateway-system
+          - langfuse
+  podMonitorSelector: {}
+  podMonitorNamespaceSelector:
+    matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+          - monitoring
+          - vault
+          - external-secrets
+          - kube-system
+          - argocd
+          - cert-manager
+          - external-dns
+          - envoy-gateway-system
+          - langfuse
+  ruleSelector: {}
+  ruleNamespaceSelector: {}
+  alerting:
+    alertmanagers:
+      - namespace: monitoring
+        name: alertmanager-kube-prometheus-stack-alertmanager
+        port: http-web
+  thanos:
+    image: quay.io/thanos/thanos:v0.36.1
+    objectStorageConfig:
+      key: objstore.yml
+      name: app-prometheus-objstore-secret
+  storage:
+    volumeClaimTemplate:
+      spec:
+        storageClassName: gp3
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 20Gi
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi

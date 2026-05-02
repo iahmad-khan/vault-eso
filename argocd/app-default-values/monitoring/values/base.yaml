@@ -2,10 +2,41 @@ prometheus:
   prometheusSpec:
     retention: 2h
     retentionSize: ""
-    # Discover ServiceMonitors/PodMonitors/PrometheusRules across all namespaces
     serviceMonitorSelectorNilUsesHelmValues: false
     podMonitorSelectorNilUsesHelmValues: false
     ruleSelectorNilUsesHelmValues: false
+    externalLabels:
+      prometheus: infra
+    # Restrict infra Prometheus to platform namespaces only.
+    # User workload namespaces are scraped by the separate app-prometheus instance.
+    serviceMonitorNamespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values:
+            - monitoring
+            - vault
+            - external-secrets
+            - kube-system
+            - argocd
+            - cert-manager
+            - external-dns
+            - envoy-gateway-system
+            - langfuse
+    podMonitorNamespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values:
+            - monitoring
+            - vault
+            - external-secrets
+            - kube-system
+            - argocd
+            - cert-manager
+            - external-dns
+            - envoy-gateway-system
+            - langfuse
     storageSpec:
       volumeClaimTemplate:
         spec:
@@ -54,7 +85,7 @@ grafana:
     - name: Thanos
       type: prometheus
       url: http://thanos-query.monitoring.svc.cluster.local:9090
-      isDefault: false
+      isDefault: true
       access: proxy
   ingress:
     enabled: true

@@ -1,0 +1,28 @@
+{{- if .Values.apps.appPrometheus.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: app-prometheus-{{ .Values.env }}
+  namespace: {{ .Values.argoCDNamespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.apps.appPrometheus.syncWave | quote }}
+spec:
+  project: default
+  sources:
+    - repoURL: {{ .Values.repoURL }}
+      targetRevision: {{ .Values.targetRevision }}
+      path: vault-eso/argocd/app-default-values/app-prometheus
+    - repoURL: {{ .Values.repoURL }}
+      targetRevision: {{ .Values.targetRevision }}
+      path: vault-eso/argocd/environments/{{ .Values.env }}/app-prometheus
+  destination:
+    name: {{ .Values.env }}
+    namespace: {{ .Values.apps.appPrometheus.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+{{- end }}
